@@ -2,10 +2,9 @@
 # Playwright E2E Tests
 #
 # PURPOSE:
-#   Runs the full Playwright test suite against the live production site
-#   (https://eventhub.rahulshettyacademy.com) on every push to main.
-#   The HTML report is uploaded as a GitHub Actions artifact so it can be
-#   downloaded and reviewed from the workflow run page.
+#   Builds a Docker image containing Node 20, all Playwright browsers, and the
+#   test suite, then runs it against the live site so the runner needs no local
+#   Node or browser installs.  The HTML report is uploaded as an artifact.
 #
 # ARTIFACT:
 #   Name   : playwright-report
@@ -26,9 +25,6 @@ concurrency:
   group: playwright-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  NODE_VERSION: '21.7.1'
-
 jobs:
   playwright:
     name: Run Playwright Tests
@@ -39,32 +35,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── Node.js setup ─────────────────────────────────────────────────────────
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
+      # ── Build Docker image ────────────────────────────────────────────────────
+      # Bakes Node 20 + all Playwright browsers into the image so the runner
+      # needs no separate install steps.
+      - name: Build Docker image
+        run: docker build -t eventhub-tests .
 
-      # ── Install root dependencies (includes @playwright/test) ─────────────────
-      - name: Install dependencies
-        run: npm ci
-
-      # ── Install Playwright browser (Chromium only) ────────────────────────────
-      # --with-deps installs the OS-level libraries Chromium needs on Ubuntu.
-      # Only Chromium is installed because playwright.config.ts defines a single
-      # project: { name: 'chromium' }.
-      - name: Install Playwright Chromium browser
-        run: npx playwright install chromium --with-deps
-
-      # ── Run all Playwright tests ──────────────────────────────────────────────
-      # The config already sets: baseURL, headless: true, reporter: 'html'.
-      # `--reporter=html` is passed explicitly so the HTML report is always
-      # generated (even on success), not just when tests fail.
+      # ── Run tests inside the container ───────────────────────────────────────
+      # Mounts report dirs back to the workspace so the artifact upload step
+      # can read them after the container exits.
+      # continue-on-error keeps the job alive so the report is always uploaded.
       - name: Run Playwright tests
-        run: npx playwright test --reporter=html
         continue-on-error: true
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/playwright-report:/app/playwright-report \
+            -v ${{ github.workspace }}/test-results:/app/test-results \
+            eventhub-tests
 
       # ── Upload HTML report as artifact ────────────────────────────────────────
       # Uploaded regardless of test outcome so failures can always be inspected.

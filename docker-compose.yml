@@ -1,0 +1,7 @@
+services:
+  tests:
+    build: .
+    # Mount output dirs so the HTML report is readable on the host after the run
+    volumes:
+      - ./playwright-report:/app/playwright-report
+      - ./test-results:/app/test-results
